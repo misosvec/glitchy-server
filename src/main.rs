@@ -19,7 +19,7 @@ fn send_request(
     Ok(stream)
 }
 
-fn parse_response(stream: &TcpStream) -> Result<(u16, Vec<u8>), Box<dyn std::error::Error>> {
+fn parse_response(stream: &TcpStream) -> Result<(u16, usize, Vec<u8>), Box<dyn std::error::Error>> {
     let mut reader = BufReader::new(stream);
     let mut headers = String::new();
 
@@ -39,13 +39,21 @@ fn parse_response(stream: &TcpStream) -> Result<(u16, Vec<u8>), Box<dyn std::err
         .next()
         .and_then(|line| line.split_whitespace().nth(1))
         .and_then(|code| code.parse::<u16>().ok())
-        .unwrap_or(200);
+        .ok_or("Failed to parse status code")?;
+    
+    // retrieve content length from headers
+    let requested_content_length = headers
+        .lines()
+        .find(|line| line.to_lowercase().starts_with("content-length"))
+        .and_then(|line| line.split(':').nth(1))
+        .and_then(|value| value.trim().parse::<usize>().ok())
+        .ok_or("Failed to parse Content-Length")?;
 
     // read the body of the response
     let mut body = Vec::new();
     reader.read_to_end(&mut body)?;
 
-    Ok((status_code, body))
+    Ok((status_code, requested_content_length, body))
 }
 
 fn get_data(
@@ -66,21 +74,19 @@ fn get_data(
         let range_end = MAX_DATA_SIZE;
 
         let stream = send_request(host, port, range_start, range_end)?;
-        let (status_code, body) = parse_response(&stream)?;
-
+        let (status_code, requested_content_length, body) = parse_response(&stream)?;
+        
         if status_code != 200 && status_code != 206 {
             return Err(format!("Error occurred, status code {}", status_code).into());
         }
         
-        // this is our stopping criterion
-        // this could be handled in different ways, for example by checking the hash after each chunk is downloaded,
-        // or by asking the user to enter the length of the data beforehand
-        if body.len() == 0 && (status_code == 206 || status_code == 200) {
+        println!("Content-Length: {}", requested_content_length);
+        println!("Downloaded bytes of data: {} ", body.len());
+        data.extend_from_slice(&body);
+
+        if body.len() == requested_content_length {
             break;
         }
-
-        println!("Downloaded {} bytes of data", body.len());
-        data.extend_from_slice(&body);
     }
 
     let mut hasher = Sha256::new();

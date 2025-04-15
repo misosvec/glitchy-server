@@ -11,7 +11,7 @@ The task assignment included a note advising us to avoid external libraries if p
 python3 server/buggy_server.py
 ```
 
-###  Running the Server
+###  Running the Client
 ```sh
 cargo run
 ```
